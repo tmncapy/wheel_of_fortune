@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Wheel Spin - Multi-Player Realtime Sync</title>
 <style>
-  *{ margin:0; padding:0; box-sizing:border-box; }
+  * { margin:0; padding:0; box-sizing:border-box; }
   
-  /* Cấu hình body làm nền đen để chứa khung 1920x1080 chính giữa */
+  /* Tạo nền đen bên ngoài để bọc khung hình chính */
   body {
     width: 100vw;
     height: 100vh;
@@ -19,7 +19,7 @@
     font-family: Arial, sans-serif;
   }
 
-  /* Khung chứa cố định kích thước 1920x1080 và chèn ảnh nền bg.png */
+  /* Khung chứa cố định 1920x1080 và chèn ảnh nền bg.png */
   .app-wrapper {
     width: 1920px;
     height: 1080px;
@@ -31,21 +31,29 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0; /* Tránh bị bóp méo khung cố định */
+    flex-shrink: 0; /* Giữ nguyên kích thước không cho bóp méo */
   }
 
-  .app{ display:flex; align-items:center; justify-content:center; }
-  .wheel-container{ position:relative; width:820px; height:820px; display:flex; align-items:center; justify-content:center; }
+  .app { display:flex; align-items:center; justify-content:center; position: relative; }
+  .wheel-container { position:relative; width:820px; height:820px; display:flex; align-items:center; justify-content:center; }
+  
   #wheel {
     width:100%; height:100%; object-fit:contain; user-select:none; pointer-events:none;
     filter:drop-shadow(0 0 30px rgba(0,0,0,0.5)); will-change: transform; transform: translateZ(0);
   }
+  
   .pointer-wrapper {
     position:absolute; bottom: -80px; left: 50%; width: 90px; height: 90px;
     transform: translateX(-50%); z-index: 5; pointer-events: none; user-select: none;
   }
-  .pointer{ width: 100%; height: 100%; object-fit: contain; transform: rotate(180deg); transform-origin: center top; will-change: transform; }
-  .drag-zone { position:absolute; width:100%; height:100%; border-radius:50%; z-index:10; cursor: grab; }
+  
+  .pointer { width: 100%; height: 100%; object-fit: contain; transform: rotate(180deg); transform-origin: center top; will-change: transform; }
+  
+  /* Vùng bắt sự kiện kéo thả chuột */
+  .drag-zone { 
+    position:absolute; width:100%; height:100%; border-radius:50%; z-index:10; 
+    cursor: grab; user-select: none; -webkit-user-drag: none; 
+  }
   .drag-zone:active { cursor: grabbing; }
 </style>
 
@@ -54,7 +62,7 @@
 </head>
 <body>
 
-<div class="app-wrapper">
+<div class="app-wrapper" id="appWrapper">
   <div class="app">
     <div class="wheel-container">
       <div class="pointer-wrapper">
@@ -91,7 +99,7 @@
   let currentRotation = 0;   
   let velocity = 0;          
   let isDragging = false;    
-  let isRemoteUpdating = false; // Cờ chặn vòng lặp phản hồi dữ liệu chéo nhau
+  let isRemoteUpdating = false; 
   let lastAngle = 0;         
   
   let dragAngles = [];
@@ -113,9 +121,9 @@
     }
   });
 
-  // 2. Lắng nghe góc quay từ Database đám mây khi có thiết bị tác động quay nón
+  // 2. Lắng nghe góc quay từ Database đám mây
   database.ref('wheelSettings').on('value', (snapshot) => {
-    if (isDragging) return; // Nếu bản thân máy này đang kéo nón thì ưu tiên hành động vuốt tại chỗ
+    if (isDragging) return; 
     
     const data = snapshot.val();
     if (data) {
@@ -129,7 +137,6 @@
     }
   });
 
-  // Hàm đẩy dữ liệu lên đám mây khi bạn thực hiện quay nón trên máy của mình
   function pushPhysicsToCloud() {
     if (isDragging || isRemoteUpdating) return;
     database.ref('wheelSettings/rotation').set(currentRotation);
@@ -146,13 +153,15 @@
   }
 
   function handleStart(e) {
+    if (e.cancelable) e.preventDefault(); 
+    
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
     isDragging = true;
     velocity = 0; 
     clearTimeout(soundTimeout);
     
-    // Đẩy trạng thái dừng nón lên mây ngay lập tức để đồng bộ cho các người chơi khác
     database.ref('wheelSettings/velocity').set(0);
 
     spinSound.play().then(() => {
@@ -167,6 +176,7 @@
 
   function handleMove(e) {
     if (!isDragging) return;
+    
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     
@@ -181,7 +191,6 @@
     
     updatePointerFlap();
     
-    // Gửi dữ liệu góc quay thời gian thực lên mây khi đang dùng tay kéo quay nón
     database.ref('wheelSettings/rotation').set(currentRotation);
 
     lastAngle = currentAngle;
@@ -217,7 +226,6 @@
       }
     }
 
-    // Đẩy thông số vận tốc cuối lên mây để máy của người xem tự tính toán lực trượt theo
     pushPhysicsToCloud();
 
     clearTimeout(soundTimeout); 
@@ -231,11 +239,17 @@
     }
   }
 
+  // CHẶN TUYỆT ĐỐI HÀNH VI "BỐC ẢNH" MẶC ĐỊNH CỦA TRÌNH DUYỆT
+  dragZone.addEventListener("dragstart", (e) => e.preventDefault());
+  wheel.addEventListener("dragstart", (e) => e.preventDefault());
+
+  // Đăng ký sự kiện Chuột (PC)
   dragZone.addEventListener("mousedown", handleStart);
   window.addEventListener("mousemove", handleMove);
   window.addEventListener("mouseup", handleEnd);
 
-  dragZone.addEventListener("touchstart", handleStart, { passive: true });
+  // Đăng ký sự kiện Chạm (Mobile/Tablet)
+  dragZone.addEventListener("touchstart", handleStart, { passive: false });
   window.addEventListener("touchmove", handleMove, { passive: false });
   window.addEventListener("touchend", handleEnd);
 
@@ -260,17 +274,15 @@
     pointerImg.style.transform = `rotate(${180 + pointerAngleOffset}deg)`;
   }
 
-  const friction = 0.996; 
+  const friction = 0.995; 
 
   function updatePhysics() {
-    // Chỉ chạy cập nhật vật lý tự sinh nếu không bị can thiệp kéo từ máy từ xa
     if (!isDragging && Math.abs(velocity) > 0.04) {
       currentRotation += velocity;
       wheel.style.transform = `rotate(${currentRotation.toFixed(2)}deg) translateZ(0)`;
       updatePointerFlap();
       velocity *= friction;
       
-      // Định kỳ cập nhật góc giảm tốc để các máy khác đồng bộ độ mượt một cách chính xác
       if(Math.floor(currentRotation) % 3 === 0) {
          pushPhysicsToCloud();
       }

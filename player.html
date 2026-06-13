@@ -6,10 +6,34 @@
 <title>Wheel Spin - Multi-Player Realtime Sync</title>
 <style>
   *{ margin:0; padding:0; box-sizing:border-box; }
-  body{
-    width:100vw; height:100vh; overflow:hidden; background:#111827;
-    display:flex; align-items:center; justify-content:center; font-family:Arial, sans-serif;
+  
+  /* Cấu hình body làm nền đen để chứa khung 1920x1080 chính giữa */
+  body {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Arial, sans-serif;
   }
+
+  /* Khung chứa cố định kích thước 1920x1080 và chèn ảnh nền bg.png */
+  .app-wrapper {
+    width: 1920px;
+    height: 1080px;
+    position: relative;
+    background-image: url('bg.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0; /* Tránh bị bóp méo khung cố định */
+  }
+
   .app{ display:flex; align-items:center; justify-content:center; }
   .wheel-container{ position:relative; width:820px; height:820px; display:flex; align-items:center; justify-content:center; }
   #wheel {
@@ -30,13 +54,15 @@
 </head>
 <body>
 
-<div class="app">
-  <div class="wheel-container">
-    <div class="pointer-wrapper">
-      <img id="pointerImg" class="pointer" src="pointer.png" />
+<div class="app-wrapper">
+  <div class="app">
+    <div class="wheel-container">
+      <div class="pointer-wrapper">
+        <img id="pointerImg" class="pointer" src="pointer.png" />
+      </div>
+      <img id="wheel" src="wheel-template.png" />
+      <div class="drag-zone" id="dragZone"></div>
     </div>
-    <img id="wheel" src="wheel-template.png" />
-    <div class="drag-zone" id="dragZone"></div>
   </div>
 </div>
 

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Wheel Spin - Web Tech Control</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #1e293b;
+    color: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+  }
+  h1 {
+    margin-bottom: 30px;
+    color: #38bdf8;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+  .grid-container {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    max-width: 600px;
+    width: 90%;
+  }
+  .btn-change {
+    background: #0f172a;
+    color: #f8fafc;
+    border: 2px solid #38bdf8;
+    padding: 25px 15px;
+    font-size: 18px;
+    font-weight: bold;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
+  }
+  .btn-change:hover {
+    background: #38bdf8;
+    color: #0f172a;
+    transform: translateY(-3px);
+    box-shadow: 0 10px 15px -3px rgba(56, 189, 248, 0.3);
+  }
+  .btn-change:active {
+    transform: translateY(1px);
+  }
+  .status-text {
+    margin-top: 30px;
+    font-size: 16px;
+    color: #94a3b8;
+  }
+</style>
+</head>
+<body>
+
+  <h1>BẢNG ĐIỀU KHIỂN WEB TECH</h1>
+  
+  <div class="grid-container">
+    <button class="btn-change" onclick="changeWheelImage('vong1.png')">Mặt Nón 1</button>
+    <button class="btn-change" onclick="changeWheelImage('vong2.png')">Mặt Nón 2</button>
+    <button class="btn-change" onclick="changeWheelImage('vong3.png')">Mặt Nón 3</button>
+    <button class="btn-change" onclick="changeWheelImage('vong4.png')">Mặt Nón 4</button>
+    <button class="btn-change" onclick="changeWheelImage('vong5.png')">Mặt Nón 5</button>
+    <button class="btn-change" onclick="changeWheelImage('vong6.png')">Mặt Nón 6</button>
+  </div>
+
+  <p class="status-text" id="status">Đang hiển thị mặt nón mặc định</p>
+
+<script>
+  function changeWheelImage(imageName) {
+    // Lưu tên ảnh được chọn vào localStorage để truyền sang trang Player
+    localStorage.setItem('activeWheelImage', imageName);
+    
+    // Cập nhật trạng thái hiển thị trên màn hình Tech
+    document.getElementById('status').innerText = `Đã yêu cầu đổi sang: ${imageName}`;
+    document.getElementById('status').style.color = '#34d399';
+  }
+</script>
+
+</body>
+</html>

@@ -3,85 +3,30 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Wheel Spin - Web Player Display</title>
+<title>Wheel Spin - Multi-Player Realtime Sync</title>
 <style>
-  *{
-    margin:0;
-    padding:0;
-    box-sizing:border-box;
-  }
-
+  *{ margin:0; padding:0; box-sizing:border-box; }
   body{
-    width:100vw;
-    height:100vh;
-    overflow:hidden;
-    background:#111827;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-family:Arial, Helvetica, sans-serif;
+    width:100vw; height:100vh; overflow:hidden; background:#111827;
+    display:flex; align-items:center; justify-content:center; font-family:Arial, sans-serif;
   }
-
-  .app{
-    display:flex;
-    align-items:center;
-    justify-content:center;
+  .app{ display:flex; align-items:center; justify-content:center; }
+  .wheel-container{ position:relative; width:820px; height:820px; display:flex; align-items:center; justify-content:center; }
+  #wheel {
+    width:100%; height:100%; object-fit:contain; user-select:none; pointer-events:none;
+    filter:drop-shadow(0 0 30px rgba(0,0,0,0.5)); will-change: transform; transform: translateZ(0);
   }
-
-  .wheel-container{
-    position:relative;
-    width:820px;
-    height:820px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-  }
-
-  #wheel{
-    width:100%;
-    height:100%;
-    object-fit:contain;
-    user-select:none;
-    pointer-events:none;
-    filter:drop-shadow(0 0 30px rgba(0,0,0,0.5));
-    will-change: transform;
-    transform: translateZ(0);
-  }
-
   .pointer-wrapper {
-    position:absolute;
-    bottom: -80px;
-    left: 50%;
-    width: 90px;
-    height: 90px;
-    transform: translateX(-50%);
-    z-index: 5;
-    pointer-events: none;
-    user-select: none;
+    position:absolute; bottom: -35px; left: 50%; width: 90px; height: 90px;
+    transform: translateX(-50%); z-index: 5; pointer-events: none; user-select: none;
   }
-
-  .pointer{
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    transform: rotate(180deg);
-    transform-origin: center top; 
-    will-change: transform;
-  }
-
-  .drag-zone {
-    position:absolute;
-    width:100%;
-    height:100%;
-    border-radius:50%;
-    z-index:10;
-    cursor: grab;
-  }
-  
-  .drag-zone:active {
-    cursor: grabbing;
-  }
+  .pointer{ width: 100%; height: 100%; object-fit: contain; transform: rotate(180deg); transform-origin: center top; will-change: transform; }
+  .drag-zone { position:absolute; width:100%; height:100%; border-radius:50%; z-index:10; cursor: grab; }
+  .drag-zone:active { cursor: grabbing; }
 </style>
+
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -98,6 +43,20 @@
 <audio id="spinSound" src="spin.mp3" preload="auto"></audio>
 
 <script>
+  // CẤU HÌNH FIREBASE (Phải trùng khớp hoàn toàn với cấu hình ở file tech.html)
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_MESSAGING_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const database = firebase.database();
+
   const wheel = document.getElementById("wheel");
   const dragZone = document.getElementById("dragZone");
   const spinSound = document.getElementById("spinSound");
@@ -106,6 +65,7 @@
   let currentRotation = 0;   
   let velocity = 0;          
   let isDragging = false;    
+  let isRemoteUpdating = false; // Cờ chặn vòng lặp phản hồi dữ liệu chéo nhau
   let lastAngle = 0;         
   
   let dragAngles = [];
@@ -116,24 +76,39 @@
   const pinAngleStep = 360 / pinCount; 
 
   // ========================================================
-  // CODE ĐỒNG BỘ: Lắng nghe sự thay đổi mặt nón từ Web Tech
+  // KẾT NỐI REALTIME: ĐỒNG BỘ DỮ LIỆU TỪ CLOUD FIREBASE
   // ========================================================
-  function checkAndUpdateWheelImage() {
-    const savedImage = localStorage.getItem('activeWheelImage');
-    if (savedImage && wheel.getAttribute('src') !== savedImage) {
-      wheel.src = savedImage;
-    }
-  }
-
-  // 1. Kiểm tra ảnh lưu sẵn ngay khi vừa tải trang F5
-  checkAndUpdateWheelImage();
-
-  // 2. Lắng nghe thời gian thực khi trang tech.html bấm nút đổi ảnh (sự kiện 'storage')
-  window.addEventListener('storage', (e) => {
-    if (e.key === 'activeWheelImage') {
-      checkAndUpdateWheelImage();
+  
+  // 1. Đồng bộ mặt nón tức thì
+  database.ref('wheelSettings/activeImage').on('value', (snapshot) => {
+    const imageName = snapshot.val();
+    if (imageName) {
+      wheel.src = imageName;
     }
   });
+
+  // 2. Lắng nghe góc quay từ Database đám mây khi có thiết bị tác động quay nón
+  database.ref('wheelSettings').on('value', (snapshot) => {
+    if (isDragging) return; // Nếu bản thân máy này đang kéo nón thì ưu tiên hành động vuốt tại chỗ
+    
+    const data = snapshot.val();
+    if (data) {
+      isRemoteUpdating = true;
+      currentRotation = data.rotation || 0;
+      velocity = data.velocity || 0;
+      
+      wheel.style.transform = `rotate(${currentRotation.toFixed(2)}deg) translateZ(0)`;
+      updatePointerFlap();
+      isRemoteUpdating = false;
+    }
+  });
+
+  // Hàm đẩy dữ liệu lên đám mây khi bạn thực hiện quay nón trên máy của mình
+  function pushPhysicsToCloud() {
+    if (isDragging || isRemoteUpdating) return;
+    database.ref('wheelSettings/rotation').set(currentRotation);
+    database.ref('wheelSettings/velocity').set(velocity);
+  }
   // ========================================================
 
   function getAngle(clientX, clientY) {
@@ -151,10 +126,13 @@
     velocity = 0; 
     clearTimeout(soundTimeout);
     
+    // Đẩy trạng thái dừng nón lên mây ngay lập tức để đồng bộ cho các người chơi khác
+    database.ref('wheelSettings/velocity').set(0);
+
     spinSound.play().then(() => {
       spinSound.pause();
       spinSound.volume = 1.0;
-    }).catch(err => console.log("Chờ tương tác"));
+    }).catch(err => console.log(""));
     
     lastAngle = getAngle(clientX, clientY);
     dragAngles = [lastAngle];
@@ -176,6 +154,10 @@
     wheel.style.transform = `rotate(${currentRotation.toFixed(2)}deg) translateZ(0)`;
     
     updatePointerFlap();
+    
+    // Gửi dữ liệu góc quay thời gian thực lên mây khi đang dùng tay kéo quay nón
+    database.ref('wheelSettings/rotation').set(currentRotation);
+
     lastAngle = currentAngle;
 
     const now = performance.now();
@@ -209,12 +191,15 @@
       }
     }
 
+    // Đẩy thông số vận tốc cuối lên mây để máy của người xem tự tính toán lực trượt theo
+    pushPhysicsToCloud();
+
     clearTimeout(soundTimeout); 
     if (Math.abs(velocity) > 2) {
       soundTimeout = setTimeout(() => {
         if (Math.abs(velocity) > 0.1) {
           spinSound.currentTime = 0;
-          spinSound.play().catch(e => console.log("Lỗi âm thanh:", e));
+          spinSound.play().catch(e => {});
         }
       }, 1000); 
     }
@@ -249,18 +234,25 @@
     pointerImg.style.transform = `rotate(${180 + pointerAngleOffset}deg)`;
   }
 
-  const friction = 0.996; 
+  const friction = 0.993; 
 
   function updatePhysics() {
+    // Chỉ chạy cập nhật vật lý tự sinh nếu không bị can thiệp kéo từ máy từ xa
     if (!isDragging && Math.abs(velocity) > 0.04) {
       currentRotation += velocity;
       wheel.style.transform = `rotate(${currentRotation.toFixed(2)}deg) translateZ(0)`;
       updatePointerFlap();
       velocity *= friction;
+      
+      // Định kỳ cập nhật góc giảm tốc để các máy khác đồng bộ độ mượt một cách chính xác
+      if(Math.floor(currentRotation) % 3 === 0) {
+         pushPhysicsToCloud();
+      }
     } else if (!isDragging && velocity !== 0) {
       velocity = 0;
       spinSound.pause();
       pointerImg.style.transform = `rotate(180deg)`;
+      pushPhysicsToCloud();
     }
     requestAnimationFrame(updatePhysics);
   }

@@ -6,80 +6,50 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wheel Spin - Web Tech Realtime Control</title>
   <style>
-    * {
-      font-weight: bold !important;
-    }
-
+    * { font-weight: bold !important; box-sizing: border-box;}
     body {
-      font-family: Arial, sans-serif;
-      background: white;
-      color: white;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      margin: 0;
+      font-family: Arial, sans-serif; background: #f3f4f6; color: #333;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0; padding: 20px;
     }
-
-    h1 {
-      margin-bottom: 30px;
-      color: blue;
-      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-    }
-
+    h1 { margin-bottom: 20px; color: #1e40af; text-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+    h2 { margin: 15px 0 10px 0; color: #4b5563; font-size: 18px; }
+    
     .grid-container {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 20px;
-      max-width: 600px;
-      width: 90%;
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;
+      max-width: 600px; width: 100%; margin-bottom: 20px;
     }
-
     .btn-change {
-      background: purple;
-      color: white;
-      border: 2px solid aqua;
-      padding: 25px 15px;
-      font-size: 18px;
-      font-weight: bold;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      text-align: center;
+      background: #7c3aed; color: white; border: 2px solid #a78bfa;
+      padding: 20px 10px; font-size: 16px; border-radius: 12px;
+      cursor: pointer; transition: all 0.2s ease; text-align: center;
     }
+    .btn-change:hover { background: #6d28d9; transform: translateY(-2px); }
 
-    .btn-change:hover {
-      background: orange;
-      color: white;
-      transform: translateY(-3px);
+    /* Khu vực nút chọn quyền người chơi */
+    .player-container {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+      max-width: 600px; width: 100%; margin-bottom: 25px;
     }
-
-    .status-text {
-      margin-top: 30px;
-      font-size: 16px;
-      color: green;
+    .btn-player {
+      background: #e5e7eb; color: #374151; border: 2px solid #d1d5db;
+      padding: 15px 5px; font-size: 16px; border-radius: 10px; cursor: pointer;
+      transition: all 0.2s;
     }
+    .btn-player.active {
+      background: #22c55e; color: white; border-color: #16a34a;
+      box-shadow: 0 0 12px rgba(34, 197, 94, 0.5);
+    }
+    .btn-player.lock-all { background: #ef4444; color: white; border-color: #dc2626; }
+    .btn-player.lock-all.active { box-shadow: 0 0 12px rgba(239, 68, 68, 0.5); background: #b91c1c; }
 
+    .status-text { font-size: 16px; color: #16a34a; margin-top: 15px; }
     .btn-reset {
-      margin-top: 20px;
-      background: red;
-      color: white;
-      border: none;
-      padding: 12px 25px;
-      font-size: 16px;
-      font-weight: bold;
-      border-radius: 8px;
-      cursor: pointer;
+      background: #ea580c; color: white; border: none; padding: 12px 25px;
+      font-size: 16px; border-radius: 8px; cursor: pointer; transition: 0.2s;
     }
-
-    .btn-reset:hover {
-      background: orange;
-      color: white;
-      transform: translateY(-2px);
-    }
+    .btn-reset:hover { background: #c2410c; transform: translateY(-2px); }
   </style>
-
   <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.4/dist/socket.io.min.js"></script>
 </head>
 
@@ -87,6 +57,15 @@
 
   <h1>BẢNG ĐIỀU KHIỂN WEB TECH REALTIME</h1>
 
+  <h2>1. CẤP QUYỀN ĐIỀU KHIỂN XOAY NÓN</h2>
+  <div class="player-container">
+    <button id="btn-p1" class="btn-player" onclick="selectPlayer('p1')">Người chơi 1 (P1)</button>
+    <button id="btn-p2" class="btn-player" onclick="selectPlayer('p2')">Người chơi 2 (P2)</button>
+    <button id="btn-p3" class="btn-player" onclick="selectPlayer('p3')">Người chơi 3 (P3)</button>
+    <button id="btn-lock" class="btn-player lock-all active" onclick="selectPlayer(null)">KHÓA TẤT CẢ</button>
+  </div>
+
+  <h2>2. ĐỔI GIAO DIỆN MẶT NÓN</h2>
   <div class="grid-container">
     <button class="btn-change" onclick="changeWheelImage('vong1.png')">Mặt Nón 1</button>
     <button class="btn-change" onclick="changeWheelImage('vong2.png')">Mặt Nón 2</button>
@@ -101,7 +80,6 @@
   <p class="status-text" id="status">Đang kết nối tới hệ thống máy chủ Node.js...</p>
 
   <script>
-    // CẤU HÌNH ĐƯỜNG DẪN ĐẾN SERVER RENDER (Thay bằng link Render của bạn sau khi deploy)
     const SERVER_URL = "https://wheel2001.onrender.com";
     const socket = io(SERVER_URL);
 
@@ -115,14 +93,34 @@
       document.getElementById('status').style.color = 'red';
     });
 
-    // Hàm đổi mặt nón đồng bộ qua Socket.io
+    socket.on('initGameState', (state) => {
+      updateActiveTurnUI(state.currentPlayerTurn);
+    });
+
+    // Hàm chọn lượt cho Player
+    function selectPlayer(playerId) {
+      socket.emit('techSelectPlayerTurn', playerId);
+      updateActiveTurnUI(playerId);
+      
+      const msg = playerId ? `Đã cấp quyền tương tác cho: ${playerId.toUpperCase()}` : "Đã khóa tính năng quay của toàn bộ người chơi!";
+      document.getElementById('status').innerText = msg;
+      document.getElementById('status').style.color = playerId ? '#22c55e' : '#ef4444';
+    }
+
+    function updateActiveTurnUI(activeId) {
+      document.querySelectorAll('.btn-player').forEach(btn => btn.classList.remove('active'));
+      if (activeId === 'p1') document.getElementById('btn-p1').classList.add('active');
+      else if (activeId === 'p2') document.getElementById('btn-p2').classList.add('active');
+      else if (activeId === 'p3') document.getElementById('btn-p3').classList.add('active');
+      else document.getElementById('btn-lock').classList.add('active');
+    }
+
     function changeWheelImage(imageName) {
       socket.emit('techChangeImage', imageName);
       document.getElementById('status').innerText = `Đã cập nhật Mặt Nón: ${imageName}`;
-      document.getElementById('status').style.color = '#34d399';
+      document.getElementById('status').style.color = '#7c3aed';
     }
 
-    // Hàm đặt lại góc quay về vị trí ban đầu
     function resetWheelPosition() {
       socket.emit('techResetWheel');
       document.getElementById('status').innerText = `Đã đưa nón của tất cả mọi người về góc số 0!`;
@@ -132,9 +130,7 @@
     document.addEventListener('contextmenu', e => e.preventDefault());
     document.addEventListener('keydown', e => {
       if (e.keyCode === 123) e.preventDefault();
-      if ((e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) || (e.ctrlKey && e.keyCode === 85)) {
-        e.preventDefault();
-      }
+      if ((e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) || (e.ctrlKey && e.keyCode === 85)) e.preventDefault();
     });
   </script>
 </body>

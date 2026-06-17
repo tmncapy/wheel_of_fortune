@@ -1,12 +1,13 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
+const cors = require('cors');
 
 const app = express();
-const server = http.createServer(app);
+app.use(cors());
+app.use(express.static('public'));
 
-// Cấu hình CORS cho phép kết nối từ mọi nguồn nếu cần tách biệt client/server
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -14,160 +15,255 @@ const io = new Server(server, {
   }
 });
 
-// Phục vụ các file tĩnh (HTML, CSS, JS, Hình ảnh...) trong cùng thư mục
-app.use(express.static(__dirname));
-
-// Định tuyến mặc định gửi về trang đăng nhập người chơi
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
-
-// Định tuyến cho trang điều khiển của kỹ thuật
-app.get('/tech', (req, res) => {
-  res.sendFile(path.join(__dirname, 'tech.html'));
-});
-
-/**
- * Cấu trúc dữ liệu lưu trữ các phòng trên bộ nhớ RAM (In-memory Server)
- * rooms: {
- * "123456": {
- * passwords: { "Player 1": "1111", "Player 2": "2222", "Player 3": "3333" },
- * allowedPlayer: null // Lưu trữ tên Player đang được quyền quay nón
- * }
- * }
- */
 const rooms = {};
 
-// Quản lý các kết nối Socket.io
+function initRoomIfNotExist(roomid) {
+  if (!rooms[roomid]) {
+    rooms[roomid] = {
+      passwords: {
+        "Player 1": null,
+        "Player 2": null,
+        "Player 3": null
+      },
+      allowedPlayer: null,
+      wheelState: {
+        activeImage: 'wheel-template.png',
+        rotation: 0,
+        velocity: 0,
+        baseRotation: 0,
+        initVelocity: 0,
+        spinStartTime: 0,
+        isDraggingSync: false
+      }
+    };
+  }
+}
+
 io.on('connection', (socket) => {
-  console.log(`[SOCKET] Người dùng mới kết nối. ID: ${socket.id}`);
+  let myRoomId = null;
 
-  // --- 1. SỰ KIỆN TỪ TRANG TECH (CONTROLLER) ---
-
-  // Kỹ thuật khởi tạo phòng hoặc cập nhật mật khẩu phòng
   socket.on('techCreateRoom', (data) => {
-    if (!data || !data.roomid) return;
-
     const { roomid, passwords } = data;
+    if (!roomid) return;
     
-    // Nếu phòng chưa tồn tại thì khởi tạo mới, giữ lại allowedPlayer cũ nếu có
-    if (!rooms[roomid]) {
-      rooms[roomid] = {
-        passwords: passwords || { "Player 1": null, "Player 2": null, "Player 3": null },
-        allowedPlayer: null
-      };
-    } else {
-      // Nếu đã có phòng thì chỉ cập nhật lại cấu hình mật khẩu mới
-      rooms[roomid].passwords = passwords;
-    }
-
-    // Kỹ thuật tự động tham gia vào "room" của Socket.io dựa trên roomid để quản lý broadcast
+    initRoomIfNotExist(roomid);
+    myRoomId = roomid; 
     socket.join(roomid);
-    console.log(`[TECH] Khởi tạo/Đồng bộ thành công phòng: ${roomid}`, rooms[roomid]);
+
+    rooms[roomid].passwords = {
+      "Player 1": passwords?.["Player 1"] !== undefined ? String(passwords["Player 1"]).trim() : null,
+      "Player 2": passwords?.["Player 2"] !== undefined ? String(passwords["Player 2"]).trim() : null,
+      "Player 3": passwords?.["Player 3"] !== undefined ? String(passwords["Player 3"]).trim() : null
+    };
   });
 
-  // Kỹ thuật cấp quyền quay nón cho người chơi
-  socket.on('techSetAllowedPlayer', (data) => {
-    if (!data || !data.roomid) return;
-    const { roomid, player } = data;
-
-    if (rooms[roomid]) {
-      rooms[roomid].allowedPlayer = player;
-      console.log(`[PERMISSION] Phòng ${roomid}: Cấp quyền quay cho [${player}]`);
-      
-      // Gửi tín hiệu cập nhật quyền tới tất cả các client trong phòng (bao gồm các máy Players)
-      io.to(roomid).emit('serverUpdatePermission', { allowedPlayer: player });
-    }
-  });
-
-  // Kỹ thuật thay đổi mặt nón thi đấu
   socket.on('techChangeImage', (data) => {
-    if (!data || !data.roomid || !data.imageName) return;
-    const { roomid, imageName } = data;
+    const roomid = data?.roomid || myRoomId;
+    const imageName = data?.imageName || data;
 
-    console.log(`[WHEEL FACE] Phòng ${roomid}: Thay đổi mặt nón -> ${imageName}`);
-    // Truyền lệnh thay đổi giao diện tới các máy Player thuộc phòng này
-    io.to(roomid).emit('serverChangeWheelImage', { imageName: imageName });
+    if (!roomid || !rooms[roomid]) return;
+    
+    rooms[roomid].wheelState.activeImage = imageName;
+    io.to(roomid).emit('playerUpdateImage', imageName);
   });
 
-  // Kỹ thuật đưa nón về góc 0
   socket.on('techResetWheel', (data) => {
-    if (!data || !data.roomid) return;
-    const { roomid } = data;
+    const roomid = data?.roomid || myRoomId;
 
-    console.log(`[WHEEL RESET] Phòng ${roomid}: Reset nón về 0 độ`);
-    // Truyền lệnh reset nón tới các máy Player thuộc phòng này
-    io.to(roomid).emit('serverResetWheelZero');
+    if (!roomid || !rooms[roomid]) return;
+    
+    const ws = rooms[roomid].wheelState;
+    ws.rotation = 0;
+    ws.velocity = 0;
+    ws.baseRotation = 0;
+    ws.initVelocity = 0;
+    ws.spinStartTime = 0;
+    ws.isDraggingSync = false;
+
+    io.to(roomid).emit('playerSyncPhysics', { rotation: 0, velocity: 0, spinStartTime: 0 });
   });
 
-  // Kỹ thuật kích hoạt phát âm thanh Soundboard
+  socket.on('techSetAllowedPlayer', (data) => {
+    const roomid = data?.roomid || myRoomId;
+    const player = data && Object.prototype.hasOwnProperty.call(data, 'player') ? data.player : data;
+
+    if (!roomid || !rooms[roomid]) return;
+    
+    rooms[roomid].allowedPlayer = player;
+    io.to(roomid).emit('syncAllowedPlayer', player);
+  });
+
   socket.on('techPlaySound', (data) => {
-    if (!data || !data.roomid || !data.soundName) return;
-    const { roomid, soundName } = data;
+    const roomid = data?.roomid || myRoomId;
+    const soundName = data?.soundName || data;
 
-    console.log(`[SOUNDBOARD] Phòng ${roomid}: Phát âm thanh -> ${soundName}.mp3`);
-    // Truyền lệnh phát nhạc tới các máy Player thuộc phòng này
-    io.to(roomid).emit('serverPlaySound', { soundName: soundName });
+    if (!roomid) return;
+    io.to(roomid).emit('listenSoundboard', soundName);
   });
 
+  socket.on('joinRoom', (data) => {
+    const { roomid, role, password } = data;
+    if (!roomid) return;
 
-  // --- 2. SỰ KIỆN TỪ TRANG INDEX (XÁC THỰC NGƯỜI CHƠI) ---
-
-  // Xử lý logic đăng nhập phòng của người chơi (Sử dụng Callback Ack)
-  socket.on('playerVerifyLogin', (payload, callback) => {
-    console.log('[LOGIN] Nhận yêu cầu xác thực đăng nhập:', payload);
-    
-    if (!payload || !payload.roomid || !payload.playerRole || !payload.password) {
-      return callback({ success: false, message: 'Dữ liệu gửi lên không hợp lệ!' });
+    if (!rooms[roomid]) {
+      socket.emit('loginResult', { success: false, message: 'Phòng thi đấu chưa được Ban Tổ Chức khởi tạo!' });
+      return;
     }
 
-    const { roomid, playerRole, password } = payload;
-    const room = rooms[roomid];
+    myRoomId = roomid;
+    socket.join(roomid);
 
-    // Kiểm tra mã phòng tồn tại
-    if (!room) {
-      return callback({ success: false, message: 'Phòng thi đấu này không tồn tại hoặc chưa được Tech khởi tạo!' });
+    // Đồng bộ Role Viewer ở cấp độ joinRoom
+    const checkRole = String(role).toLowerCase();
+    if (checkRole === 'viewer') {
+      socket.myRole = 'viewer';
+      socket.emit('loginResult', { success: true, role: 'viewer' });
+      socket.emit('initGameState', {
+        ...rooms[roomid].wheelState,
+        allowedPlayer: rooms[roomid].allowedPlayer
+      });
+      return;
     }
 
-    // Kiểm tra mật khẩu tương ứng với Role đã chọn
-    const targetPassword = room.passwords[playerRole];
-    if (targetPassword && targetPassword === password.toString()) {
-      
-      // Đăng nhập thành công -> Cho socket của người chơi này join vào phòng tương ứng
-      socket.join(roomid);
-      console.log(`[LOGIN SUCCESS] ${playerRole} đã đăng nhập thành công vào phòng ${roomid}`);
-      
-      return callback({ success: true, message: 'Xác thực thành công!' });
+    let targetRole = role;
+    let clientPass = "";
+
+    if (password && typeof password === 'object') {
+      targetRole = password.playerRole || role;
+      clientPass = password.playerPassword !== undefined ? String(password.playerPassword).trim() : "";
+    } else if (password !== undefined) {
+      clientPass = String(password).trim();
+    }
+
+    const savedPass = rooms[roomid].passwords[targetRole];
+
+    if (savedPass !== null && savedPass !== undefined && String(savedPass).trim() === clientPass) {
+      socket.myRole = targetRole;
+      socket.emit('loginResult', { success: true, role: 'player', playerRole: targetRole });
+      socket.emit('initGameState', {
+        ...rooms[roomid].wheelState,
+        allowedPlayer: rooms[roomid].allowedPlayer
+      });
     } else {
-      return callback({ success: false, message: 'Mật khẩu đăng nhập không chính xác!' });
+      socket.emit('loginResult', { success: false, message: 'Xác thực thông tin cấu hình phòng thất bại!' });
     }
   });
 
-  // Người chơi hoặc kỹ thuật kiểm tra danh sách phòng đang chạy trên server (Nút Kiểm Tra Server)
+  socket.on('playerVerifyLogin', (data, callback) => {
+    const roomid = data?.roomid !== undefined ? String(data.roomid).trim() : "";
+    const playerRole = data?.playerRole;
+    
+    let clientPass = "";
+    if (data?.password !== undefined) {
+      clientPass = String(data.password).trim();
+    } else if (data?.playerPassword !== undefined) {
+      clientPass = String(data.playerPassword).trim();
+    }
+
+    if (!roomid) {
+      if (typeof callback === 'function') callback({ success: false, message: 'Thiếu mã phòng!' });
+      return;
+    }
+
+    if (!rooms[roomid]) {
+      if (typeof callback === 'function') {
+        callback({ success: false, message: 'Phòng thi đấu này chưa được Ban Tổ Chức (Tech) khởi tạo trên hệ thống!' });
+      }
+      return;
+    }
+
+    // Xác thực luồng cho Role Viewer
+    if (playerRole && String(playerRole).toLowerCase() === 'viewer') {
+      myRoomId = roomid;
+      socket.join(roomid);
+      socket.myRole = 'viewer';
+
+      if (typeof callback === 'function') callback({ success: true, playerRole: 'viewer' });
+
+      socket.emit('initGameState', {
+        ...rooms[roomid].wheelState,
+        allowedPlayer: rooms[roomid].allowedPlayer
+      });
+      return;
+    }
+
+    const savedPass = rooms[roomid].passwords[playerRole];
+
+    if (savedPass !== null && savedPass !== undefined && String(savedPass).trim() === clientPass) {
+      myRoomId = roomid;
+      socket.join(roomid);
+      socket.myRole = playerRole;
+      
+      if (typeof callback === 'function') callback({ success: true, playerRole: playerRole });
+
+      socket.emit('initGameState', {
+        ...rooms[roomid].wheelState,
+        allowedPlayer: rooms[roomid].allowedPlayer
+      });
+    } else {
+      if (typeof callback === 'function') {
+        callback({ success: false, message: 'Mật khẩu phòng thi đấu không chính xác!' });
+      }
+    }
+  });
+
+  socket.on('playerUpdatePhysics', (data) => {
+    if (!myRoomId || !rooms[myRoomId]) return;
+    
+    // Viewer tuyệt đối không được phép gửi dữ liệu làm ghi đè vòng quay
+    if (socket.myRole === 'viewer') return;
+
+    const ws = rooms[myRoomId].wheelState;
+
+    if (data.spinStartTime) {
+      ws.baseRotation = data.baseRotation;
+      ws.initVelocity = data.initVelocity;
+      ws.spinStartTime = data.spinStartTime;
+      ws.velocity = data.initVelocity;
+      ws.isDraggingSync = false;
+    } else {
+      ws.rotation = data.rotation;
+      ws.velocity = data.velocity ?? 0;
+      ws.spinStartTime = 0;
+      ws.isDraggingSync = data.isDraggingSync || false;
+    }
+    if (data.rotation !== undefined) ws.rotation = data.rotation;
+
+    socket.broadcast.to(myRoomId).emit('playerSyncPhysics', data);
+  });
+
+  socket.on('playerStopWheel', (data) => {
+    if (!myRoomId || !rooms[myRoomId]) return;
+    
+    // Viewer tuyệt đối không được phép dừng vòng quay
+    if (socket.myRole === 'viewer') return;
+
+    const ws = rooms[myRoomId].wheelState;
+    
+    ws.rotation = data.rotation;
+    ws.velocity = 0;
+    ws.baseRotation = 0;
+    ws.initVelocity = 0;
+    ws.spinStartTime = 0;
+    ws.isDraggingSync = false;
+    
+    io.to(myRoomId).emit('playerSyncPhysics', { rotation: data.rotation, velocity: 0, spinStartTime: 0 });
+  });
+
   socket.on('debugGetAllRooms', (callback) => {
-    console.log('[DEBUG] Yêu cầu lấy thông tin tất cả các phòng từ Client');
-    
-    // Tạo bản sao cấu hình mật khẩu để phản hồi về Client hiển thị
-    const debugData = {};
-    for (let id in rooms) {
-      debugData[id] = rooms[id].passwords;
+    const roomsList = {};
+    for (const roomid in rooms) {
+      roomsList[roomid] = rooms[roomid].passwords;
     }
-    
-    callback(debugData);
+    if (typeof callback === 'function') callback(roomsList);
   });
 
-  // Xử lý khi ngắt kết nối
   socket.on('disconnect', () => {
-    console.log(`[SOCKET] Người dùng ngắt kết nối. ID: ${socket.id}`);
+    if (myRoomId) {
+      socket.leave(myRoomId);
+    }
   });
 });
 
-// Triển khai Server chạy trên cổng 3000 hoặc cổng được cấp phát bởi dịch vụ Hosting (Render, Heroku...)
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`====================================================`);
-  console.log(`🚀 SERVER CHẠY THÀNH CÔNG TẠI CỔNG: ${PORT}`);
-  console.log(`🔗 Giao diện người chơi: http://localhost:${PORT}`);
-  console.log(`🔗 Giao diện kỹ thuật:   http://localhost:${PORT}/tech`);
-  console.log(`====================================================`);
-});
+server.listen(PORT);

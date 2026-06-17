@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Player 3</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-weight: bold !important;
+    }
+
+    body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: url('bg.png') no-repeat center center/120% auto;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: Arial, sans-serif;
+    }
+
+    .app {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    }
+
+    .wheel-container {
+      position: relative;
+      width: 820px;
+      height: 820px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #wheel {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      user-select: none;
+      pointer-events: none;
+      filter: drop-shadow(0 0 30px rgba(0, 0, 0, 0.5));
+      will-change: transform;
+      transform: translateZ(0);
+    }
+
+    .pointer-wrapper {
+      position: absolute;
+      bottom: -80px;
+      left: 50%;
+      width: 90px;
+      height: 90px;
+      transform: translateX(-50%);
+      z-index: 5;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .pointer {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      transform: rotate(180deg);
+      transform-origin: center top;
+      will-change: transform;
+    }
+
+    .drag-zone {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      z-index: 10;
+      cursor: not-allowed;
+    }
+
+    .audio-init-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.95);
+      z-index: 99999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .audio-init-overlay button {
+      background: #ff00ff;
+      color: white;
+      border: none;
+      padding: 25px 50px;
+      font-size: 24px;
+      border-radius: 12px;
+      cursor: pointer;
+      box-shadow: 0 0 25px #39ff14;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.4/dist/socket.io.min.js"></script>
+</head>
+
+<body>
+
+  <div id="audioOverlay" class="audio-init-overlay">
+    <button onclick="activateAudioStream()">KÍCH HOẠT KẾT NỐI REALTIME & ÂM THANH</button>
+  </div>
+
+  <div class="app">
+    <div class="wheel-container">
+      <div class="pointer-wrapper">
+        <img id="pointerImg" class="pointer" src="pointer.png" />
+      </div>
+      <img id="wheel" src="wheel-template.png" />
+      <div class="drag-zone" id="dragZone"></div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io("https://wheel2001.onrender.com", { transports: ['websocket'] });
+
+    const roomid = sessionStorage.getItem('roomid');
+    const playerRole = sessionStorage.getItem('player');
+    const playerPass = sessionStorage.getItem('password');
+
+    const myPlayerName = "Player 3"; // Thay đổi tương ứng với từng file
+    let isDraggingAllowed = false; 
+
+    // Tự động khôi phục dữ liệu nếu bị ngắt kết nối do ngủ đông Tab
+    socket.on('connect', () => {
+      if (roomid && playerRole) {
+        socket.emit('playerVerifyLogin', { roomid, playerRole, password: playerPass }, (res) => {
+          if (!res || !res.success) {
+            window.location.href = 'index.html';
+          }
+        });
+      }
+    });
+
+    const wheel = document.getElementById('wheel');
+    const pointerImg = document.getElementById('pointerImg');
+
+    const clickSound = new Audio('click.mp3');
+    const spinSound = new Audio('spin.mp3');
+    spinSound.loop = true;
+
+    const soundboard = {
+      "10s": new Audio('10s.mp3'),
+      "30s": new Audio('30s.mp3'),
+      "Bankrupt": new Audio('Bankrupt.mp3'),
+      "Commercial": new Audio('Commercial.mp3'),
+      "Double": new Audio('Double.mp3'),
+      "FreeTurn": new Audio('FreeTurn.mp3'),
+      "Half": new Audio('Half.mp3'),
+      "HostEntrance": new Audio('HostEntrance.mp3'),
+      "Intro": new Audio('Intro.mp3'),
+      "LoseATurn": new Audio('LoseATurn.mp3'),
+      "Lucky": new Audio('Lucky.mp3')
+    };
+
+    function activateAudioStream() {
+      document.getElementById('audioOverlay').style.display = 'none';
+      clickSound.play().then(() => { clickSound.pause(); }).catch(() => {});
+      spinSound.play().then(() => { spinSound.pause(); }).catch(() => {});
+      for (let key in soundboard) {
+        soundboard[key].play().then(() => { soundboard[key].pause(); }).catch(() => {});
+      }
+    }
+
+    function playSoundboardEvent(soundName) {
+      if (soundboard[soundName]) {
+        try {
+          soundboard[soundName].currentTime = 0;
+          soundboard[soundName].play();
+        } catch (err) {}
+      }
+    }
+
+    let currentRotation = 0;
+    let isDragging = false;
+    let startAngle = 0;
+    let currentAngle = 0;
+    let dragHistory = [];
+    let isDraggingByMe = false;
+
+    let baseRotation = 0;
+    let initVelocity = 0;
+    let spinStartTime = 0;
+    let isSpinningFree = false;
+
+    let spinTimeoutToken = null;
+    let isSpinSoundPlaying = false;
+
+    const friction = 0.995;
+    const pinAngleStep = 15;
+    let lastClickAngleIndex = 0;
+    let isSoundPlaying = false;
+
+    function getMouseAngle(e) {
+      const rect = wheel.getBoundingClientRect();
+      const wheelX = rect.left + rect.width / 2;
+      const wheelY = rect.top + rect.height / 2;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return Math.atan2(clientY - wheelY, clientX - wheelX) * (180 / Math.PI);
+    }
+
+    function applyPermissionUI(allowedPlayer) {
+      const dragZone = document.getElementById('dragZone');
+      if (allowedPlayer === myPlayerName) {
+        isDraggingAllowed = true;
+        if(dragZone) dragZone.style.cursor = 'grab';
+      } else {
+        isDraggingAllowed = false;
+        if(dragZone) dragZone.style.cursor = 'not-allowed';
+      }
+    }
+
+    function onMouseDown(e) {
+      if (!isDraggingAllowed || isSpinningFree) return;
+      isDragging = true;
+      isDraggingByMe = true;
+      startAngle = getMouseAngle(e);
+      currentAngle = startAngle;
+      dragHistory = [{ angle: startAngle, time: performance.now() }];
+      spinStartTime = 0;
+      initVelocity = 0;
+
+      socket.emit('playerUpdatePhysics', {
+        rotation: currentRotation,
+        velocity: 0,
+        isDraggingSync: true
+      });
+    }
+
+    function onMouseMove(e) {
+      if (!isDragging || !isDraggingByMe) return;
+      const mouseAngle = getMouseAngle(e);
+      const delta = mouseAngle - currentAngle;
+      currentAngle = mouseAngle;
+
+      let adjustedDelta = delta;
+      if (delta > 180) adjustedDelta -= 360;
+      if (delta < -180) adjustedDelta += 360;
+
+      currentRotation += adjustedDelta;
+      dragHistory.push({ angle: mouseAngle, time: performance.now() });
+      if (dragHistory.length > 5) dragHistory.shift();
+
+      socket.emit('playerUpdatePhysics', {
+        rotation: currentRotation,
+        velocity: 0,
+        isDraggingSync: true
+      });
+    }
+
+    function onMouseUp() {
+      if (!isDragging || !isDraggingByMe) return;
+      isDragging = false;
+
+      if (dragHistory.length < 2) {
+        isDraggingByMe = false;
+        socket.emit('playerUpdatePhysics', { rotation: currentRotation, velocity: 0, isDraggingSync: false });
+        return;
+      }
+
+      const now = performance.now();
+      let validSample = null;
+      for (let i = dragHistory.length - 1; i >= 0; i--) {
+        if (now - dragHistory[i].time > 10 && now - dragHistory[i].time < 150) {
+          validSample = dragHistory[i];
+          break;
+        }
+      }
+      if (!validSample) validSample = dragHistory[0];
+
+      const dt = (now - validSample.time) / 1000;
+      if (dt <= 0) {
+        isDraggingByMe = false;
+        socket.emit('playerUpdatePhysics', { rotation: currentRotation, velocity: 0, isDraggingSync: false });
+        return;
+      }
+
+      let deltaAngle = currentAngle - validSample.angle;
+      if (deltaAngle > 180) deltaAngle -= 360;
+      if (deltaAngle < -180) deltaAngle += 360;
+
+      let calculatedVelocity = deltaAngle / dt;
+      const maxVel = 2500;
+      if (calculatedVelocity > maxVel) calculatedVelocity = maxVel;
+      if (calculatedVelocity < -maxVel) calculatedVelocity = -maxVel;
+
+      if (Math.abs(calculatedVelocity) > 40) {
+        baseRotation = currentRotation;
+        initVelocity = calculatedVelocity;
+        spinStartTime = Date.now(); 
+        isSpinningFree = true;
+
+        triggerSpinSoundTimeout();
+
+        socket.emit('playerUpdatePhysics', {
+          baseRotation: baseRotation,
+          initVelocity: initVelocity,
+          spinStartTime: spinStartTime
+        });
+      } else {
+        isDraggingByMe = false;
+        socket.emit('playerUpdatePhysics', { rotation: currentRotation, velocity: 0, isDraggingSync: false });
+      }
+    }
+
+    function triggerSpinSoundTimeout() {
+      clearTimeout(spinTimeoutToken);
+      spinTimeoutToken = setTimeout(() => {
+        if (isSpinningFree && !isSpinSoundPlaying) {
+          try {
+            spinSound.currentTime = 0;
+            spinSound.play();
+            isSpinSoundPlaying = true;
+          } catch (e) {}
+        }
+      }, 1000); 
+    }
+
+    function stopSpinSoundSafely() {
+      clearTimeout(spinTimeoutToken);
+      if (isSpinSoundPlaying) {
+        spinSound.pause();
+        spinSound.currentTime = 0;
+        isSpinSoundPlaying = false;
+      }
+    }
+
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('touchstart', onMouseDown, { passive: false });
+    window.addEventListener('touchmove', onMouseMove, { passive: false });
+    window.addEventListener('touchend', onMouseUp);
+
+    socket.on('playerSyncPhysics', (data) => {
+      if (isDraggingByMe) return;
+
+      if (data.spinStartTime) {
+        baseRotation = data.baseRotation;
+        initVelocity = data.initVelocity;
+        spinStartTime = data.spinStartTime;
+        isSpinningFree = true;
+        
+        triggerSpinSoundTimeout();
+      } else {
+        if (data.rotation !== undefined) currentRotation = data.rotation;
+        if (data.velocity === 0) {
+          isSpinningFree = false;
+          spinStartTime = 0;
+          initVelocity = 0;
+          stopSpinSoundSafely(); 
+        }
+      }
+    });
+
+    function calculateCurrentPhysics() {
+      if (!isSpinningFree || spinStartTime === 0) {
+        return { r: currentRotation, v: 0 };
+      }
+      const t = (Date.now() - spinStartTime) / 1000;
+      if (t < 0) return { r: baseRotation, v: initVelocity };
+
+      // Chốt tọa độ giới hạn toán học (Asymptote target) để mọi tab dừng chung 1 điểm
+      const targetRotation = baseRotation + (initVelocity / ((1 - friction) * 60));
+      const currentVelocity = initVelocity * Math.pow(friction, t * 60);
+
+      if (Math.abs(currentVelocity) < 0.2) {
+        isSpinningFree = false;
+        stopSpinSoundSafely(); 
+        return { r: targetRotation, v: 0 };
+      }
+
+      const computedRotation = baseRotation + (initVelocity * (1 - Math.pow(friction, t * 60))) / (1 - friction) / 60;
+      return { r: computedRotation, v: currentVelocity };
+    }
+
+    function manageSoundSafelyBackground() {
+      // 1. Ép tính toán vật lý chạy ngầm ngay cả khi tab bị ẩn
+      const state = calculateCurrentPhysics();
+      
+      // Luôn cập nhật góc quay mới nhất
+      currentRotation = state.r;
+
+      // 2. Gửi sự kiện dừng Nón lên Server kể cả khi tab không được focus
+      if (isDraggingByMe && !isSpinningFree && state.v === 0 && !isDragging) {
+        isDraggingByMe = false;
+        spinStartTime = 0;
+        isSoundPlaying = false;
+        stopSpinSoundSafely();
+        socket.emit('playerStopWheel', { rotation: currentRotation });
+      }
+
+      // 3. Quản lý âm thanh tách tách của kim nón
+      let normalizedRotation = currentRotation % 360;
+      if (normalizedRotation < 0) normalizedRotation += 360;
+      let currentAngleIndex = Math.floor(normalizedRotation / pinAngleStep);
+
+      if (currentAngleIndex !== lastClickAngleIndex) {
+        lastClickAngleIndex = currentAngleIndex;
+        if (!isSoundPlaying) {
+          isSoundPlaying = true;
+          clickSound.currentTime = 0;
+          clickSound.play().then(() => { isSoundPlaying = false; }).catch(() => { isSoundPlaying = false; });
+        }
+      }
+    }
+    setInterval(manageSoundSafelyBackground, 30);
+
+    function updatePointerFlap(rotationValue) {
+      let normalizedRotation = rotationValue % 360;
+      if (normalizedRotation < 0) normalizedRotation += 360;
+      let remainder = normalizedRotation % pinAngleStep;
+      if (remainder > pinAngleStep / 2) remainder -= pinAngleStep;
+
+      let pointerAngleOffset = 0;
+      const contactZone = 6;
+      if (Math.abs(remainder) < contactZone) {
+        let pushIntensity = (contactZone - Math.abs(remainder)) / contactZone;
+        pointerAngleOffset = -Math.abs(remainder * pushIntensity * 6.0);
+      }
+      pointerAngleOffset = Math.max(-25, Math.min(0, pointerAngleOffset));
+      if(pointerImg) pointerImg.style.transform = `rotate(${180 + pointerAngleOffset}deg)`;
+    }
+
+    function renderLoop() {
+      const state = calculateCurrentPhysics();
+      
+      // Luôn đồng bộ góc quay với physics engine để tránh bỏ lỡ frame cuối
+      currentRotation = state.r;
+
+      if(wheel) wheel.style.transform = `rotate(${currentRotation.toFixed(2)}deg) translateZ(0)`;
+      updatePointerFlap(currentRotation);
+
+      if (isDraggingByMe && !isSpinningFree && state.v === 0 && !isDragging) {
+        isDraggingByMe = false;
+        spinStartTime = 0;
+        isSoundPlaying = false;
+        stopSpinSoundSafely();
+        socket.emit('playerStopWheel', { rotation: currentRotation });
+      }
+      requestAnimationFrame(renderLoop);
+    }
+    requestAnimationFrame(renderLoop);
+
+    socket.on('playerUpdateImage', (imageName) => {
+      if (imageName && wheel) wheel.src = imageName;
+    });
+
+    socket.on('syncAllowedPlayer', (player) => {
+      applyPermissionUI(player);
+    });
+
+    socket.on('listenSoundboard', (soundName) => {
+      if (soundName) playSoundboardEvent(soundName);
+    });
+
+    socket.on('initGameState', (state) => {
+      if (state) {
+        if (state.activeImage && wheel) wheel.src = state.activeImage;
+        applyPermissionUI(state.allowedPlayer);
+
+        if (state.spinStartTime && state.spinStartTime > 0) {
+          baseRotation = state.baseRotation;
+          initVelocity = state.initVelocity;
+          spinStartTime = state.spinStartTime;
+          isSpinningFree = true;
+          triggerSpinSoundTimeout();
+        } else {
+          if (state.rotation !== undefined) {
+            currentRotation = state.rotation;
+            isSpinningFree = false;
+            spinStartTime = 0;
+            stopSpinSoundSafely();
+          }
+        }
+      }
+    });
+
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('keydown', e => {
+      if (e.keyCode === 123) e.preventDefault();
+      if ((e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) || (e.ctrlKey && e.keyCode === 85)) {
+        e.preventDefault();
+      }
+    });
+  </script>
+</body>
+
+</html>

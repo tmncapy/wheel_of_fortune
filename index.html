@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Xác Thực Người Chơi</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: Arial, sans-serif;
+      font-weight: bold !important;
+    }
+
+    body {
+      background: purple;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+
+    .login-box {
+      background: #181818;
+      border: 3px solid red;
+      padding: 40px;
+      border-radius: 16px;
+      width: 440px;
+      box-shadow: 0 0 25px rgba(57, 255, 20, 0.25);
+      text-align: center;
+    }
+
+    h2 {
+      color: yellow;
+      margin-bottom: 25px;
+      font-size: 22px;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+
+    .form-item {
+      margin-bottom: 18px;
+      text-align: left;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 7px;
+      color: #bbb;
+      font-size: 14px;
+      font-weight: bold;
+    }
+
+    select,
+    input {
+      width: 100%;
+      padding: 12px;
+      background: #262626;
+      border: 1px solid #444;
+      color: white;
+      border-radius: 8px;
+      font-size: 16px;
+      outline: none;
+      font-weight: bold;
+    }
+
+    select:focus,
+    input:focus {
+      border-color: #39ff14;
+    }
+
+    .btn-submit {
+      width: 100%;
+      background: green;
+      color: white;
+      border: none;
+      padding: 14px;
+      font-size: 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: transform 0.1s;
+      margin-top: 10px;
+      font-weight: bold;
+    }
+
+    .btn-submit:active {
+      transform: scale(0.97);
+    }
+
+    .btn-submit:hover {
+      background: orange !important;
+      color: white !important;
+    }
+
+    .popup-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .popup-content {
+      background: #222;
+      border: 3px solid #ff0000;
+      padding: 30px;
+      border-radius: 12px;
+      text-align: center;
+      width: 420px;
+      box-shadow: 0 0 20px rgba(255, 0, 0, 0.4);
+    }
+
+    .popup-modal.info .popup-content {
+      border-color: #39ff14;
+      box-shadow: 0 0 20px rgba(57, 255, 20, 0.4);
+    }
+
+    .popup-content p {
+      font-size: 16px;
+      color: white;
+      margin-bottom: 22px;
+      line-height: 1.5;
+      text-align: left;
+      white-space: pre-line;
+      font-weight: bold;
+    }
+
+    .popup-content button {
+      background: #ff0000;
+      color: white;
+      border: none;
+      padding: 10px 30px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 15px;
+      width: 100%;
+      font-weight: bold;
+    }
+
+    .popup-modal.info .popup-content button {
+      background: #39ff14;
+      color: black;
+    }
+
+    .popup-content button:hover {
+      background: orange !important;
+      color: white !important;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.4/dist/socket.io.min.js"></script>
+</head>
+
+<body>
+
+  <div class="login-box">
+    <h2>XÁC THỰC NGƯỜI CHƠI</h2>
+    <div class="form-item">
+      <label>Chọn Người Chơi:</label>
+      <select id="playerSelect">
+        <option value="Player 1">Player 1</option>
+        <option value="Player 2">Player 2</option>
+        <option value="Player 3">Player 3</option>
+      </select>
+    </div>
+    <div class="form-item">
+      <label>Mã Phòng (6 chữ số):</label>
+      <input type="text" id="roomIdInput" maxlength="6" placeholder="Nhập mã phòng...">
+    </div>
+    <div class="form-item">
+      <label>Mật Khẩu (4 chữ số):</label>
+      <input type="password" id="passwordInput" maxlength="4" placeholder="Nhập mật khẩu...">
+    </div>
+    <button class="btn-submit" onclick="executeLoginVerify()">XÁC NHẬN ĐĂNG NHẬP</button>
+    <button class="btn-submit" style="background: blue; margin-top: 8px;" onclick="debugCheckRooms()">🔍 KIỂM TRA SERVER</button>
+  </div>
+
+  <div id="customAlert" class="popup-modal">
+    <div class="popup-content">
+      <p id="alertMessage">Thông báo hệ thống!</p>
+      <button id="alertBtn"
+        style="background: red; color: white; font-weight: bold; border: none; padding: 10px 30px; border-radius: 6px; cursor: pointer; font-size: 15px; width: 100%; transition: background 0.2s;"
+        onclick="closeAlertPopup()">
+        ĐÓNG THÔNG BÁO
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const socket = io("https://wheel2001.onrender.com");
+
+    function showAlertPopup(message, isInfo = false) {
+      const modal = document.getElementById('customAlert');
+      const msgParagraph = document.getElementById('alertMessage');
+
+      msgParagraph.innerText = message;
+
+      if (isInfo) {
+        modal.classList.add('info');
+      } else {
+        modal.classList.remove('info');
+      }
+
+      modal.style.display = 'flex';
+    }
+
+    function closeAlertPopup() {
+      document.getElementById('customAlert').style.display = 'none';
+    }
+
+    function executeLoginVerify() {
+      const playerRole = document.getElementById('playerSelect').value;
+      const roomidRaw = document.getElementById('roomIdInput').value.trim();
+      const passwordRaw = document.getElementById('passwordInput').value.trim();
+
+      if (roomidRaw.length !== 6 || isNaN(roomidRaw)) {
+        showAlertPopup('❌ Mã phòng phải nhập đủ 6 chữ số!', false);
+        return;
+      }
+      if (passwordRaw.length !== 4 || isNaN(passwordRaw)) {
+        showAlertPopup('❌ Mật khẩu phải nhập đủ 4 chữ số!', false);
+        return;
+      }
+
+      const payload = {
+        roomid: roomidRaw,             
+        roomidNum: Number(roomidRaw),   
+        playerRole: playerRole,
+        password: passwordRaw,         
+        passwordNum: Number(passwordRaw) 
+      };
+
+      console.log('[SOCKET] Đang gửi yêu cầu xác thực lên Server:', payload);
+
+      let callbackReceived = false;
+
+      socket.emit('playerVerifyLogin', payload, (response) => {
+        callbackReceived = true;
+        console.log('[SOCKET] Kết quả phản hồi từ server:', response);
+
+        if (response && (response.success || response.status === "success" || response.ok)) {
+          executeRedirect(roomidRaw, playerRole, passwordRaw);
+        } else {
+          const errorMsg = response && response.message ? response.message : 'Thông tin phòng hoặc mật khẩu không chính xác!';
+          showAlertPopup('❌ Đăng nhập thất bại: ' + errorMsg, false);
+        }
+      });
+
+      setTimeout(() => {
+        if (!callbackReceived) {
+          console.warn('[TIMEOUT] Server phản hồi quá lâu hoặc không có callback.');
+          showAlertPopup('⚠️ Máy chủ phản hồi quá lâu hoặc chưa được khởi tạo phòng từ Tech! Vui lòng thử lại.', false);
+        }
+      }, 5000);
+    }
+
+    function executeRedirect(room, role, password) {
+      // FIX ĐỒNG BỘ: Lưu đồng thời cả từ khóa cũ lẫn mới để đảm bảo các trang Player đều đọc chính xác
+      sessionStorage.setItem('authenticatedRoomID', room);
+      sessionStorage.setItem('roomid', room);
+      
+      sessionStorage.setItem('authenticatedRole', role);
+      sessionStorage.setItem('player', role);
+      sessionStorage.setItem('playerRole', role);
+      
+      sessionStorage.setItem('authenticatedPassword', password);
+      sessionStorage.setItem('playerPassword', password);
+      sessionStorage.setItem('password', password);
+
+      const targetPage = role.replace(' ', '') + '.html';
+      console.log('[REDIRECT] Đang chuyển hướng tự động tới trang:', targetPage);
+      window.location.href = targetPage;
+    }
+
+    function debugCheckRooms() {
+      if (!socket.connected) {
+        showAlertPopup('Không kết nối được tới server!', false);
+        return;
+      }
+      console.log('[DEBUG] Kiểm tra tất cả phòng lưu trên server...');
+
+      socket.emit('debugGetAllRooms', (data) => {
+        console.log('[DEBUG] Dữ liệu phòng từ server trả về:', data);
+
+        if (!data || Object.keys(data).length === 0) {
+          showAlertPopup('❌ Không có phòng nào đang chạy trên máy chủ!', false);
+          return;
+        }
+
+        const roomCount = Object.keys(data).length;
+        let msg = `✓ Tìm thấy ${roomCount} phòng đang mở:\n\n`;
+
+        for (let id in data) {
+          const roomPasswords = data[id] || {};
+          msg += `Mã Phòng: ${id}\n`;
+          msg += `  • Player 1: ${roomPasswords["Player 1"] ? "🔒 Đã đặt MK" : "Trống"}\n`;
+          msg += `  • Player 2: ${roomPasswords["Player 2"] ? "🔒 Đã đặt MK" : "Trống"}\n`;
+          msg += `  • Player 3: ${roomPasswords["Player 3"] ? "🔒 Đã đặt MK" : "Trống"}\n\n`;
+        }
+
+        showAlertPopup(msg, true);
+      });
+    }
+
+    socket.on('connect', () => {
+      console.log('[SOCKET] Kết nối máy chủ thành công. ID:', socket.id);
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('[SOCKET] Lỗi kết nối tới máy chủ:', error.message);
+    });
+
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('keydown', e => {
+      if (e.keyCode === 123) e.preventDefault();
+      if ((e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) || (e.ctrlKey && e.keyCode === 85)) {
+        e.preventDefault();
+      }
+    });
+  </script>
+</body>
+
+</html>
